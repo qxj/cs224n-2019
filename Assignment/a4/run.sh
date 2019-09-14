@@ -20,6 +20,10 @@ elif [ "$1" = "test_zh" ]; then
         CUDA_VISIBLE_DEVICES=0 python run.py decode model_zh.bin ./ch_en_data/test.ch ./ch_en_data/test.en outputs_zh/test_outputs.txt --cuda
 elif [ "$1" = "vocab_zh" ]; then
 	python vocab.py --train-src=./ch_en_data/train.ch --train-tgt=./ch_en_data/train.en vocab_zh.json
+elif [ "$1" = "plot_en" ]; then
+    mkdir outputs_en
+    head -3 ./ch_en_data/test.en > outputs_en/test.en
+	python run.py decode --plot-attention model_en.bin ./outputs_en/test.en ./outputs_en/output.txt
 else
 	echo "Invalid Option Selected"
 fi
