@@ -45,13 +45,7 @@ class CharDecoder(nn.Module):
         @returns dec_hidden: internal state of the LSTM after reading the input characters. A tuple of two tensors of shape (1, batch, hidden_size)
         """
         ### YOUR CODE HERE for part 2b
-        ### TODO - Implement the forward pass of the character decoder.
-        char_embedding = self.decoderCharEmb(input) # len, batch, char_embed_size
-        # h_ts  shape (len, b, hidden_size)
-        hiddens, dec_hidden= self.charDecoder(char_embedding, dec_hidden)
-        # score shape : (len, b, V)
-        score = self.char_output_projection(hiddens)
-        return score, dec_hidden
+
         ### END YOUR CODE 
 
 
@@ -71,19 +65,6 @@ class CharDecoder(nn.Module):
 
         # TODO: Check loss implementation
 
-        input  = char_sequence[:-1] # not get last character
-        score, dec_hidden = self.forward(input, dec_hidden) # shape (len, b, V)
-
-        target = char_sequence[1:].contiguous().view(-1) # not get first character
-        score  = score.view(-1, score.shape[-1])
-
-        loss   = nn.CrossEntropyLoss(
-            reduction= "sum", # Equation #15: When compute loss_char_dec, we take the sum, not average
-            ignore_index=self.target_vocab.char2id['<pad>'] # not take into account pad character when compute loss
-        )
-
-        # take input : (N, C), target (N)
-        return loss(score, target)
 
         ### END YOUR CODE
 
@@ -104,29 +85,7 @@ class CharDecoder(nn.Module):
         ###      - Use torch.tensor(..., device=device) to turn a list of character indices into a tensor.
         ###      - We use curly brackets as start-of-word and end-of-word characters. That is, use the character '{' for <START> and '}' for <END>.
         ###        Their indices are self.target_vocab.start_of_word and self.target_vocab.end_of_word, respectively.
-        b = initialStates[0].shape[1]
-        dec_hidden = initialStates
 
-        start_index = self.target_vocab.start_of_word
-        end_index   = self.target_vocab.end_of_word
-
-        input = torch.tensor([start_index for _ in range(b)], device=device).unsqueeze(0)
-        decodeTuple = [["", False] for _ in range(b)]
-
-        for step in range(max_length):
-            score, dec_hidden = self.forward(input, dec_hidden) # score shape (1, b, V)
-            input = score.argmax(dim=2) # (1, b)
-
-            for str_index, char_index in enumerate(input.detach().squeeze(0)):
-                # if not reach end index:
-                if not decodeTuple[str_index][1]:
-                    if char_index != end_index:
-                        decodeTuple[str_index][0] += self.target_vocab.id2char[char_index.item()]
-                    else:
-                        decodeTuple[str_index][1] = True
-
-        decodedWords = [i[0]for i in decodeTuple]
-        return decodedWords
 
         ### END YOUR CODE
 
