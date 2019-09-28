@@ -8,6 +8,7 @@ Pencheng Yin <pcyin@cs.cmu.edu>
 Sahil Chopra <schopra8@stanford.edu>
 """
 from collections import namedtuple
+import numpy as np
 import sys
 from typing import List, Tuple, Dict, Set, Union
 import torch
@@ -17,7 +18,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 from model_embeddings import ModelEmbeddings
-Hypothesis = namedtuple('Hypothesis', ['value', 'score'])
+Hypothesis = namedtuple('Hypothesis', ['value', 'score', 'attention'])
 
 
 class NMT(nn.Module):
@@ -73,6 +74,14 @@ class NMT(nn.Module):
         ###     Dropout Layer:
         ###         https://pytorch.org/docs/stable/nn.html#torch.nn.Dropout
 
+        self.encoder = nn.LSTM(embed_size, hidden_size, num_layers=1, bias=True, bidirectional=True)
+        self.decoder = nn.LSTMCell(embed_size+hidden_size, hidden_size, bias=True)
+        self.h_projection = nn.Linear(hidden_size*2, hidden_size, bias=False)
+        self.c_projection = nn.Linear(hidden_size*2, hidden_size, bias=False)
+        self.att_projection = nn.Linear(hidden_size*2, hidden_size, bias=False)
+        self.combined_output_projection = nn.Linear(hidden_size*3, hidden_size, bias=False)
+        self.target_vocab_projection = nn.Linear(hidden_size, len(vocab.tgt), bias=False)
+        self.dropout = nn.Dropout(dropout_rate)
 
         ### END YOUR CODE
 
@@ -139,7 +148,7 @@ class NMT(nn.Module):
         ###     2. Compute `enc_hiddens`, `last_hidden`, `last_cell` by applying the encoder to `X`.
         ###         - Before you can apply the encoder, you need to apply the `pack_padded_sequence` function to X.
         ###         - After you apply the encoder, you need to apply the `pad_packed_sequence` function to enc_hiddens.
-        ###         - Note that the shape of the tensor returned by the encoder is (src_len b, h*2) and we want to
+        ###         - Note that the shape of the tensor returned by the encoder is (src_len, b, h*2) and we want to
         ###           return a tensor of shape (b, src_len, h*2) as `enc_hiddens`.
         ###     3. Compute `dec_init_state` = (init_decoder_hidden, init_decoder_cell):
         ###         - `init_decoder_hidden`:
@@ -163,6 +172,14 @@ class NMT(nn.Module):
         ###     Tensor Permute:
         ###         https://pytorch.org/docs/stable/tensors.html#torch.Tensor.permute
 
+        X = self.model_embeddings.source(source_padded)  # (T,B,E)
+        lstm_input = pack_padded_sequence(X, source_lengths)
+        enc_hiddens, (last_hidden, last_cell) = self.encoder(lstm_input)  # (T,B,2H), (2,B,H), (2,B,H)
+        enc_hiddens, _ = pad_packed_sequence(enc_hiddens)
+        enc_hiddens = enc_hiddens.permute(1, 0, 2)  # (B,T,2H)
+        init_decoder_hidden = self.h_projection(torch.cat([last_hidden[0], last_hidden[1]], 1))  # (B,H)
+        init_decoder_cell = self.c_projection(torch.cat([last_cell[0], last_cell[1]], 1))  # (B,H)
+        dec_init_state = (init_decoder_hidden, init_decoder_cell)
 
         ### END YOUR CODE
 
@@ -233,6 +250,15 @@ class NMT(nn.Module):
         ###     Tensor Stacking:
         ###         https://pytorch.org/docs/stable/torch.html#torch.stack
 
+        enc_hiddens_proj = self.att_projection(enc_hiddens)  # (B,T,H)
+        Y = self.model_embeddings.target(target_padded)  # (T,B,E)
+        for Y_t in Y.split(split_size=1):
+            Y_t = Y_t.squeeze(0)  # (B,E)
+            Ybar_t = torch.cat([Y_t, o_prev], 1)  # (B,E+H)
+            dec_state, o_t, e_t = self.step(Ybar_t, dec_state, enc_hiddens, enc_hiddens_proj, enc_masks)
+            combined_outputs.append(o_t)
+            o_prev = o_t
+        combined_outputs = torch.stack(combined_outputs) # (T,B,H)
 
         ### END YOUR CODE
 
@@ -291,12 +317,17 @@ class NMT(nn.Module):
         ###     Tensor Squeeze:
         ###         https://pytorch.org/docs/stable/torch.html#torch.squeeze
 
+        dec_state = self.decoder(Ybar_t, dec_state)
+        dec_hidden, dec_cell = dec_state   # (B,H), (B,H)
+        e_t = torch.bmm(enc_hiddens_proj, dec_hidden.unsqueeze(2))  # (B,T,H) * (B,H,1) -> (B,T,1)
+        e_t = e_t.squeeze(2)  # (B,T)
 
         ### END YOUR CODE
 
         # Set e_t to -inf where enc_masks has 1
         if enc_masks is not None:
             e_t.data.masked_fill_(enc_masks.byte(), -float('inf')) # mask the 0s with -inf, so e^x = 0
+        # !!enc_masks let attention scores of padding words be zero, will not disturb softmax results.
 
         ### YOUR CODE HERE (~6 Lines)
         ### TODO:
@@ -326,6 +357,12 @@ class NMT(nn.Module):
         ###     Tanh:
         ###         https://pytorch.org/docs/stable/torch.html#torch.tanh
 
+        alpha_t = F.softmax(e_t, 1)  # (B,T)
+        a_t = torch.bmm(alpha_t.unsqueeze(1), enc_hiddens)  # (B,1,T) * (B,T,2H) -> (B,1,2H)
+        a_t = a_t.squeeze(1)
+        U_t = torch.cat([a_t, dec_hidden], 1)
+        V_t = self.combined_output_projection(U_t)
+        O_t = self.dropout(torch.tanh(V_t))
 
         ### END YOUR CODE
 
@@ -357,19 +394,20 @@ class NMT(nn.Module):
                 value: List[str]: the decoded target sentence, represented as a list of words
                 score: float: the log-likelihood of the target sentence
         """
-        src_sents_var = self.vocab.src.to_input_tensor([src_sent], self.device)
+        src_sents_var = self.vocab.src.to_input_tensor([src_sent], self.device)  # (T,1)
 
-        src_encodings, dec_init_vec = self.encode(src_sents_var, [len(src_sent)])
-        src_encodings_att_linear = self.att_projection(src_encodings)
+        src_encodings, dec_init_vec = self.encode(src_sents_var, [len(src_sent)])  # (1,T,2H)
+        src_encodings_att_linear = self.att_projection(src_encodings)  # (1,T,H)
 
-        h_tm1 = dec_init_vec
-        att_tm1 = torch.zeros(1, self.hidden_size, device=self.device)
+        h_tm1 = dec_init_vec  # (1,H)
+        att_tm1 = torch.zeros(1, self.hidden_size, device=self.device)  # (1,H)
 
         eos_id = self.vocab.tgt['</s>']
 
         hypotheses = [['<s>']]
         hyp_scores = torch.zeros(len(hypotheses), dtype=torch.float, device=self.device)
-        completed_hypotheses = []
+        completed_hypotheses = []  # store all possible target sentences
+        attentions = [[]]  # store attention scores
 
         t = 0
         while len(completed_hypotheses) < beam_size and t < max_decoding_time_step:
@@ -384,56 +422,66 @@ class NMT(nn.Module):
                                                                            src_encodings_att_linear.size(1),
                                                                            src_encodings_att_linear.size(2))
 
+            # always the last y, not more teaching
             y_tm1 = torch.tensor([self.vocab.tgt[hyp[-1]] for hyp in hypotheses], dtype=torch.long, device=self.device)
-            y_t_embed = self.model_embeddings.target(y_tm1)
+            y_t_embed = self.model_embeddings.target(y_tm1)  # (1,E) -> (B,E)
 
-            x = torch.cat([y_t_embed, att_tm1], dim=-1)
+            x = torch.cat([y_t_embed, att_tm1], dim=-1)  # (B,E+H)
 
-            (h_t, cell_t), att_t, _  = self.step(x, h_tm1,
+            (h_t, cell_t), att_t, e_t = self.step(x, h_tm1,
                                                       exp_src_encodings, exp_src_encodings_att_linear, enc_masks=None)
 
+            alpha_t = F.softmax(e_t, 1)  # (B,T)
+
             # log probabilities over target words
-            log_p_t = F.log_softmax(self.target_vocab_projection(att_t), dim=-1)
+            log_p_t = F.log_softmax(self.target_vocab_projection(att_t), dim=-1)  # (1,V)
 
             live_hyp_num = beam_size - len(completed_hypotheses)
-            contiuating_hyp_scores = (hyp_scores.unsqueeze(1).expand_as(log_p_t) + log_p_t).view(-1)
+            contiuating_hyp_scores = (hyp_scores.unsqueeze(1).expand_as(log_p_t) + log_p_t).view(-1)  # sum log_p_t, (B,) -> (B,V) -> (B*V,)
             top_cand_hyp_scores, top_cand_hyp_pos = torch.topk(contiuating_hyp_scores, k=live_hyp_num)
 
-            prev_hyp_ids = top_cand_hyp_pos / len(self.vocab.tgt)
-            hyp_word_ids = top_cand_hyp_pos % len(self.vocab.tgt)
+            prev_hyp_ids = top_cand_hyp_pos / len(self.vocab.tgt)  # hypotheses sentence id \in [0,B), firstly it will be [0,0,0], if k=3
+            hyp_word_ids = top_cand_hyp_pos % len(self.vocab.tgt)  # current word id \in [0,V)
 
             new_hypotheses = []
             live_hyp_ids = []
             new_hyp_scores = []
+            new_attentions = []
 
             for prev_hyp_id, hyp_word_id, cand_new_hyp_score in zip(prev_hyp_ids, hyp_word_ids, top_cand_hyp_scores):
-                prev_hyp_id = prev_hyp_id.item()
+                prev_hyp_id = prev_hyp_id.item()   # tensor.item() -> number
                 hyp_word_id = hyp_word_id.item()
                 cand_new_hyp_score = cand_new_hyp_score.item()
 
                 hyp_word = self.vocab.tgt.id2word[hyp_word_id]
                 new_hyp_sent = hypotheses[prev_hyp_id] + [hyp_word]
-                if hyp_word == '</s>':
+                hyp_att = alpha_t[prev_hyp_id].numpy()
+                new_att_sent = attentions[prev_hyp_id] + [hyp_att]
+                if hyp_word == '</s>':  # got one completed target sentence
                     completed_hypotheses.append(Hypothesis(value=new_hyp_sent[1:-1],
-                                                           score=cand_new_hyp_score))
+                                                           score=cand_new_hyp_score,
+                                                           attention=np.array(new_att_sent[:-1])))
                 else:
                     new_hypotheses.append(new_hyp_sent)
-                    live_hyp_ids.append(prev_hyp_id)
+                    live_hyp_ids.append(prev_hyp_id)   # \in [0,B), firstly it will be [0,0,0]
                     new_hyp_scores.append(cand_new_hyp_score)
+                    new_attentions.append(new_att_sent)
 
             if len(completed_hypotheses) == beam_size:
                 break
 
-            live_hyp_ids = torch.tensor(live_hyp_ids, dtype=torch.long, device=self.device)
-            h_tm1 = (h_t[live_hyp_ids], cell_t[live_hyp_ids])
-            att_tm1 = att_t[live_hyp_ids]
+            live_hyp_ids = torch.tensor(live_hyp_ids, dtype=torch.long, device=self.device)  # (B,)
+            h_tm1 = (h_t[live_hyp_ids], cell_t[live_hyp_ids])  # EXPAND TO k!
+            att_tm1 = att_t[live_hyp_ids]  # EXPAND TO k!
 
             hypotheses = new_hypotheses
             hyp_scores = torch.tensor(new_hyp_scores, dtype=torch.float, device=self.device)
+            attentions = new_attentions
 
         if len(completed_hypotheses) == 0:
             completed_hypotheses.append(Hypothesis(value=hypotheses[0][1:],
-                                                   score=hyp_scores[0].item()))
+                                                   score=hyp_scores[0].item(),
+                                                   attention=np.array(attentions[0])))
 
         completed_hypotheses.sort(key=lambda hyp: hyp.score, reverse=True)
 

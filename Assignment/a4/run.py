@@ -39,12 +39,15 @@ Options:
     --valid-niter=<int>                     perform validation after how many iterations [default: 2000]
     --dropout=<float>                       dropout [default: 0.3]
     --max-decoding-time-step=<int>          maximum number of decoding time steps [default: 70]
+    --plot-attention                        plot attention
 """
 import math
 import sys
 import pickle
 import time
-
+import os
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 from docopt import docopt
 from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction
@@ -275,7 +278,7 @@ def decode(args: Dict[str, str]):
     model = NMT.load(args['MODEL_PATH'])
 
     if args['--cuda']:
-        model = model.to(torch.device("cuda:0"))
+        model = model.to(torch.device("cuda"))
 
     hypotheses = beam_search(model, test_data_src,
                              beam_size=int(args['--beam-size']),
@@ -292,6 +295,39 @@ def decode(args: Dict[str, str]):
             hyp_sent = ' '.join(top_hyp.value)
             f.write(hyp_sent + '\n')
 
+    if args['--plot-attention']:
+        plt.rcParams['font.family'] = ['sans-serif']
+        plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'Arial', 'sans-serif']
+        from matplotlib.font_manager import _rebuild
+        _rebuild()
+        output_dir = os.path.dirname(args['OUTPUT_FILE'])
+        for idx, (src_sent, hyps) in tqdm(
+                enumerate(zip(test_data_src, hypotheses)),
+                desc='Plot attention',
+                file=sys.stdout):
+            top_hyp = hyps[0]
+            hyp_sent = top_hyp.value
+            hyp_att = top_hyp.attention
+            filename = output_dir + '/att_%d.jpg' % idx
+            plot_attention(hyp_att, src_sent, hyp_sent, filename)
+
+
+# function for plotting the attention weights
+def plot_attention(attention, sentence, predicted_sentence, figure_filename):
+    fig = plt.figure(figsize=(10,10))
+    ax = fig.add_subplot(1, 1, 1)
+    ax.matshow(attention, cmap='viridis')
+
+    fontdict = {'fontsize': 14}
+
+    ax.set_xticklabels([''] + sentence, fontdict=fontdict, rotation=90)
+    ax.set_yticklabels([''] + predicted_sentence, fontdict=fontdict)
+
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+
+    fig.savefig(figure_filename)
+    plt.close(fig)
 
 def beam_search(model: NMT, test_data_src: List[List[str]], beam_size: int, max_decoding_time_step: int) -> List[List[Hypothesis]]:
     """ Run beam search to construct hypotheses for a list of src-language sentences.
