@@ -17,7 +17,7 @@ def sigmoid(x):
     """
 
     ### YOUR CODE HERE
-    s = 1./(1. + np.exp(-x))
+    s = 1 / (1 + np.exp(-x))
     ### END YOUR CODE
 
     return s
@@ -27,7 +27,8 @@ def naiveSoftmaxLossAndGradient(
     centerWordVec,
     outsideWordIdx,
     outsideVectors,
-    dataset
+    dataset,
+    K  # BUG?
 ):
     """ Naive Softmax loss & gradient function for word2vec models
 
@@ -43,6 +44,7 @@ def naiveSoftmaxLossAndGradient(
     outsideVectors -- outside vectors (rows of matrix) for all words in vocab
                       (U in the pdf handout)
     dataset -- needed for negative sampling, unused here.
+    K -- needed for negative sampling, unused here.
 
     Return:
     loss -- naive softmax loss
@@ -58,6 +60,11 @@ def naiveSoftmaxLossAndGradient(
     ### This numerically stable implementation helps you avoid issues pertaining
     ### to integer overflow. 
 
+    y_hat = softmax(np.dot(centerWordVec, outsideVectors.T)) # (d,) x (d, |V|) => (|V|,)
+    loss = - np.log(y_hat)[outsideWordIdx]  # -\log(\hat{y}_o)
+    y_hat[outsideWordIdx] -= 1  # \hat{y} - y
+    gradCenterVec = np.dot(y_hat, outsideVectors)  # (\hat{y} - y)U
+    gradOutsideVecs = np.dot(np.expand_dims(y_hat, 1), np.expand_dims(centerWordVec, 0))  # v_c(\hat{y} - y)^T
 
     ### END YOUR CODE
 
@@ -104,6 +111,23 @@ def negSamplingLossAndGradient(
 
     ### YOUR CODE HERE
 
+    loss = 0
+    gradCenterVec = np.zeros(centerWordVec.shape)
+    gradOutsideVecs = np.zeros(outsideVectors.shape)  # would impact performance
+
+    # positive samples
+    u_o = outsideVectors[outsideWordIdx]  # (d,)
+    s = sigmoid(np.dot(u_o, centerWordVec))  # u_o*v_c
+    loss -= np.log(s)
+    gradCenterVec += (s-1)*u_o
+    gradOutsideVecs[outsideWordIdx] += (s-1)*centerWordVec  # \partial J/\partial u_o
+
+    # negative samples
+    u_k = outsideVectors[negSampleWordIndices]  # (K, d)
+    s = sigmoid(np.dot(u_k, centerWordVec))  # (K,) \sigma(u_k*v_c)
+    loss -= np.sum(np.log(1-s))
+    gradCenterVec += np.dot(s, u_k)   # \sum_k \sigma_k * u_k
+    gradOutsideVecs[negSampleWordIndices] += np.outer(s, centerWordVec)  # \partial J/\partial u_k
 
     ### END YOUR CODE
 
@@ -142,11 +166,19 @@ def skipgram(currentCenterWord, windowSize, outsideWords, word2Ind,
     """
 
     loss = 0.0
-    gradCenterVecs = np.zeros(centerWordVectors.shape)
-    gradOutsideVectors = np.zeros(outsideVectors.shape)
+    gradCenterVecs = np.zeros(centerWordVectors.shape)  # (|V|, d)
+    gradOutsideVectors = np.zeros(outsideVectors.shape)  # (|V|, d)
 
     ### YOUR CODE HERE
 
+    centerWordIndex = word2Ind[currentCenterWord]
+    v_c = centerWordVectors[centerWordIndex] # (d,)
+    for outsideWord in outsideWords:
+        outsideWordIndex = word2Ind[outsideWord]
+        loss_, g_v_c, g_U = word2vecLossAndGradient(v_c, outsideWordIndex, outsideVectors, dataset, windowSize)
+        loss += loss_
+        gradCenterVecs[centerWordIndex] += g_v_c
+        gradOutsideVectors += g_U
 
     ### END YOUR CODE
 
@@ -163,8 +195,8 @@ def word2vec_sgd_wrapper(word2vecModel, word2Ind, wordVectors, dataset,
     loss = 0.0
     grad = np.zeros(wordVectors.shape)
     N = wordVectors.shape[0]
-    centerWordVectors = wordVectors[:int(N/2),:]
-    outsideVectors = wordVectors[int(N/2):,:]
+    centerWordVectors = wordVectors[:int(N/2),:]  # (|V|, d)
+    outsideVectors = wordVectors[int(N/2):,:]  # (|V|, d)
     for i in range(batchsize):
         windowSize1 = random.randint(1, windowSize)
         centerWord, context = dataset.getRandomContext(windowSize1)

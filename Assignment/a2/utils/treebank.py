@@ -93,6 +93,12 @@ class StanfordSentiment:
         return self._allsentences
 
     def getRandomContext(self, C=5):
+        '''
+        Sample a center word (string) and around words as its context (no more than C*2).
+
+        :param C: window size, default=5
+        :return: centerword, context
+        '''
         allsent = self.allSentences()
         sentID = random.randint(0, len(allsent) - 1)
         sent = allsent[sentID]

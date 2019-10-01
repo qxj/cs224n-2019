@@ -49,10 +49,10 @@ $$
 \begin{aligned}
 \frac{\partial J}{\partial v_c} &= \frac{\partial J}{\partial \theta} \frac{\partial \theta}{\partial v_c} \\
 &= (\hat{y} - y) \frac{\partial U^T v_c}{\partial v_c} \\
-&= (\hat{y} - y) U^T
+&= (\hat{y} - y)U
 \end{aligned}
 $$
-其中，$U\in R^{V\times h}$包括所有的outside vector $u_w$。
+其中，$U\in R^{|V|\times d}$ 包括所有的outside vector $u_w$。所以， $\frac{\partial J}{\partial v_c} \in R^d$。
 
 ## 1c
 
@@ -61,9 +61,10 @@ $$
 \begin{aligned} 
 \frac{\partial J}{\partial u_w} &= \frac{\partial J}{\partial \theta} \frac{\partial \theta}{\partial U} \\
 &= (\hat{y} - y) \frac{\partial U^Tv_c}{\partial U} \\
-&= v_c(\hat{y} - y)^T 
+&= (\hat{y} - y) v_c
 \end{aligned}
 $$
+所以，$\frac{\partial J}{\partial U}\in R^{|V|\times d}$ 。
 
 ## 1d
 
@@ -72,10 +73,20 @@ $$
 \begin{aligned}
 \frac{d}{dx}\sigma(x) &= \frac{d\sigma(x)}{df} \frac{df}{dx} \\
 &=-(1+\exp(-x))^{-2} \cdot -\exp(-x) \\
-&=\frac1{1+\exp(-x)}\cdot \frac1{1+exp(-x)} \exp(-x) \\
+&=\frac1{1+\exp(-x)}\cdot \frac1{1+\exp(-x)} \exp(-x) \\
 &=\sigma(x) \cdot \sigma(-x)
 \end{aligned}
 $$
+如果$x$是vector的话
+$$
+\begin{aligned}
+\frac{\partial \sigma(x)}{\partial x}
+&= \left[\frac{\partial \sigma\left(x_{j}\right)}{\partial x_{i}}\right]_{d \times d}
+\\ &=\left[\begin{array}{cccc}{\sigma^{\prime}\left(x_{1}\right)} & {0} & {\cdots} & {0} \\ {0} & {\sigma^{\prime}\left(x_{2}\right)} & {\cdots} & {0} \\ {\vdots} & {\vdots} & {\vdots} & {\vdots} \\ {0} & {0} & {\cdots} & {\sigma^{\prime}\left(x_{d}\right)}\end{array}\right]
+\\ &=\text{diag}(\sigma^\prime(x))
+\end{aligned}
+$$
+
 
 ## 1e
 
@@ -83,12 +94,48 @@ $$
 J_\mathrm{neg-sample} = -\log(\sigma(u_o^T v_c)) - \sum_{k=1}^K \log(\sigma(-u_k^T v_c))
 $$
 
+对 $v_c$ 求偏导数
+
+
 $$
 \begin{aligned}
 \frac{\partial J}{\partial v_c} &= -\frac1{\sigma(u_o^T v_c)}\cdot \frac{\partial \sigma(u_o^T v_c)}{\partial v_c} - \sum_{k=1}^K \frac1{\sigma(-u_k^T v_c)} \cdot \frac{\partial \sigma(-u_k^T v_c)}{\partial v_c} \\
 &= -\frac1{\sigma(u_o^T v_c)}\cdot \sigma(u_o^T v_c)\sigma(-u_o^T v_c)\cdot \frac{\partial u_o^T v_c}{\partial v_c} - \sum_{k=1}^K \frac1{\sigma(-u_k^T v_c)} \cdot \sigma(-u_k^T v_c)\sigma(u_k^T v_c) \cdot \frac{\partial -u_k^T v_c}{\partial v_c} \\
 &= - \sigma(-u_o^T v_c) u_o^T - \sum_{k=1}^K \sigma(u_k^T v_c)(-u_k^T) \\
-&=\sigma(u_o^T v_c)u_o^T - u_o^T + \sum_{k=1}^K \sigma(u_k^T v_c)u_k^T \\
+&=(\sigma(u_o^T v_c)-1) u_o^T + \sum_{k=1}^K \sigma(u_k^T v_c)u_k^T \\
+\end{aligned}
+$$
+对$u_o$求偏导数
+$$
+\begin{aligned}
+\frac{\partial J}{\partial u_o} &= - \frac1{\sigma(u_o^T v_c)}\cdot \frac{\partial \sigma(u_o^T v_c)}{\partial u_o} \\
+&=- \frac1{\sigma(u_o^T v_c)}\cdot \sigma(u_o^T v_c)\sigma(-u_o^T v_c) \cdot \frac{\partial u_o^T v_c}{\partial v_c} \\
+&= (\sigma(u_o^T v_c) -1)v_c
+\end{aligned}
+$$
+对$u_k$求偏导数
+$$
+\begin{aligned}
+\frac{\partial J}{\partial u_k} &= - \sum_{k=1}^K \frac1{\sigma(-u_k^T v_c)} \cdot \frac{\partial \sigma(-u_k^T v_c)}{\partial u_k} \\
+&= \frac1{\sigma(-u_k^T v_c)} \cdot \sigma(-u_k^T v_c) \sigma(u_k^T v_c) \cdot \frac{\partial -u_k^T v_c}{\partial u_k} \\
+&= \sigma(u_k^T v_c) v_c
+\end{aligned}
+$$
+可以看出naive softmax对$v_c$求偏导的时候，
+$$
+\frac{\partial J}{\partial v_c} = U (\hat{y} - y)
+$$
+需要与output vector矩阵运算，复杂度是和词表$V$大小相关的；
+
+而negative sampling的三个求偏导步骤没有这个问题，仅和负样本数量$K$相关。
+
+##1f
+
+$$
+\begin{aligned}
+\frac{\partial J_\mathrm{skip-gram}}{\partial U} &= \sum_{-m\leq j\leq m\atop j\neq 0} \frac{\partial J(v_c, w_{t+j}, U)}{\partial U} \\
+\frac{\partial J_\mathrm{skip-gram}}{\partial v_c} &= \sum_{-m\leq j\leq m\atop j\neq 0} \frac{\partial J(v_c, w_{t+j}, U)}{\partial v_c} \\
+\frac{\partial J_\mathrm{skip-gram}}{\partial v_w} &= 0
 \end{aligned}
 $$
 
