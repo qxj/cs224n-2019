@@ -139,3 +139,19 @@ $$
 \end{aligned}
 $$
 
+## 2e
+
+```
+iter 39980: 6.869433
+iter 39990: 6.856858
+iter 40000: 6.836423
+sanity check: cost at convergence should be around or below 10
+training took 10327 seconds
+```
+
+![](word_vectors.png)
+
+结果看起来还可以
+
+- 对同义词任务来说，因为context的原因，某些同义词或反义词是在一起，比如enjoyable/annoying, bad/worth/amazing/wonderful/boring/great
+- 对类比任务来说，man:king::woman:queen 和 male:king::female:queue基本是平行的，还算符合预期
