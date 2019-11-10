@@ -11,6 +11,7 @@ Michael Hahn <mhahn2@stanford.edu>
 """
 
 import torch.nn as nn
+import torch
 
 # Do not change these imports; your module names should be
 #   `CNN` in the file `cnn.py`
@@ -41,6 +42,12 @@ class ModelEmbeddings(nn.Module):
 
         ### YOUR CODE HERE for part 1j
 
+        self.char_embedding = nn.Embedding(len(vocab.char2id),
+                                           50,  # e_char
+                                           vocab.char2id['<pad>'])
+        self.cnn = CNN(f=embed_size)
+        self.highway = Highway(embed_size=embed_size)
+        self.dropout = nn.Dropout(p=0.3)
 
         ### END YOUR CODE
 
@@ -60,6 +67,18 @@ class ModelEmbeddings(nn.Module):
 
         ### YOUR CODE HERE for part 1j
 
+        X_word_emb_list = []
+
+        for X_padded in input:
+            X_emb = self.char_embedding(X_padded)
+            X_reshaped = torch.transpose(X_emb, dim0=-1, dim1=-2)
+            X_conv_out = self.cnn(X_reshaped)
+            X_highway = self.highway(X_conv_out)
+            X_word_emb = self.dropout(X_highway)
+            X_word_emb_list.append(X_word_emb)
+
+        X_word_emb = torch.stack(X_word_emb_list)
+        return X_word_emb
 
         ### END YOUR CODE
 
