@@ -31,8 +31,8 @@ class Highway(nn.Module):
         @return X_highway (Tensor): combined output with shape (max_sentence_length, batch_size, embed_size)
         """
 
-        X_proj = F.relu(self.projection(X_conv_out))
-        X_gate = torch.sigmoid(self.gate(X_conv_out))
+        X_proj = F.relu(self.projection(X_conv_out))  # (max_sentence_length, batch_size, embed_size), embed_size=e_word
+        X_gate = torch.sigmoid(self.gate(X_conv_out))  # ditto
         X_highway = torch.mul(X_proj, X_gate) + torch.mul(X_conv_out, 1 - X_gate)
 
         return X_highway

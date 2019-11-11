@@ -1,6 +1,11 @@
 # Assignment 5: Sub-word modeling & Convolutional Neural Network
 
+[TOC]
+
+#1
+
 ## a
+
 $e_{word}=256$，$e_{char}=50$
 
 Obviously, words are much more than characters.
@@ -32,4 +37,6 @@ ConvNet多个filter可能捕捉到不同的local特征
 ## d
 
 MaxPooling能捕捉到最强的pattern，但也会丢失其他较弱的信号，这在图像中无伤大雅，但在NLP里上下文更重要，可能会有问题。
+
+# 2
 

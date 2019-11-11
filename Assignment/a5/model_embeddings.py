@@ -48,6 +48,7 @@ class ModelEmbeddings(nn.Module):
         self.cnn = CNN(f=embed_size)
         self.highway = Highway(embed_size=embed_size)
         self.dropout = nn.Dropout(p=0.3)
+        self.embed_size = embed_size
 
         ### END YOUR CODE
 

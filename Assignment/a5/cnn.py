@@ -34,11 +34,11 @@ class CNN(nn.Module):
 
         @param X_reshaped: Tensor of char-level embedding with shape (max_sentence_length, batch_size, e_char, m_word),
                            where e_char = embed_size of char, m_word = max_word_length.
-        @return X_conv_out: Tensor of word-level embedding with shape (max_sentence_length, batch_size)
+        @return X_conv_out: Tensor of word-level embedding with shape (max_sentence_length, batch_size, e_word)
         """
 
-        X_conv = self.conv1d(X_reshaped)
-        X_conv_out = self.maxpool(F.relu(X_conv))
+        X_conv = self.conv1d(X_reshaped)  # (max_sentence_length, batch_size, f, m_word-k+1), f:filter num = e_word
+        X_conv_out = self.maxpool(F.relu(X_conv))  # (max_sentence_length, batch_size, e_word, 1)
 
         return torch.squeeze(X_conv_out, -1)
 
