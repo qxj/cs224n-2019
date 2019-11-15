@@ -40,3 +40,22 @@ MaxPooling能捕捉到最强的pattern，但也会丢失其他较弱的信号，
 
 # 2
 
+train
+
+```
+epoch 29, iter 196310, avg. loss 84.85, avg. ppl 118.85 cum. examples 9920, speed 1500.96 words/sec, time elapsed 76321.95 sec
+epoch 29, iter 196320, avg. loss 81.88, avg. ppl 115.76 cum. examples 10240, speed 1486.56 words/sec, time elapsed 76325.66 sec
+epoch 29, iter 196330, avg. loss 89.18, avg. ppl 137.83 cum. examples 10537, speed 1430.67 words/sec, time elapsed 76329.42 sec
+reached maximum number of epochs!
+```
+
+test
+
+```
+load test source sentences from [./en_es_data/test.es]
+load test target sentences from [./en_es_data/test.en]
+load model from model.bin
+Decoding: 100%|█████████████████████████████| 8064/8064 [16:37<00:00,  8.08it/s]
+Corpus BLEU: 24.588190642455157
+```
+
